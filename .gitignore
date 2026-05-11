@@ -27,3 +27,7 @@ htmlcov/
 # Editor/IDE specific (optional but recommended)
 .vscode/
 .idea/
+
+# Pygame files
+*.pygame
+*.pyp
