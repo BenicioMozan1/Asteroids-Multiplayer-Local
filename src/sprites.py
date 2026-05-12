@@ -246,24 +246,56 @@ class Ship(pg.sprite.Sprite):
             return self.angle
         return self.angle + 35.0 * math.sin(self.drunk_phase * 6.0)
 
-    def control_p1(self, keys, dt: float):
+    def control_p1(self, keys, joysticks, dt: float):
         sign = self._drunk_turn()
-        if keys[pg.K_LEFT]:
+        turn = 0
+        if keys[pg.K_LEFT]: turn = -1
+        if keys[pg.K_RIGHT]: turn = 1
+        
+        thrust = keys[pg.K_UP]
+
+        joy_list = list(joysticks.values())
+        if len(joy_list) > 0:
+            joy = joy_list[0]
+            axis_x = joy.get_axis(0)
+            if axis_x < -0.2: turn = -1
+            elif axis_x > 0.2: turn = 1
+            if joy.get_button(0): thrust = True
+
+        if turn == -1:
             self.angle -= sign * C.SHIP_TURN_SPEED * dt
-        if keys[pg.K_RIGHT]:
+        elif turn == 1:
             self.angle += sign * C.SHIP_TURN_SPEED * dt
-        if keys[pg.K_UP]:
+            
+        if thrust:
             self.vel += angle_to_vec(self._drunk_thrust_angle()) * C.SHIP_THRUST * dt
+            
         self.vel *= C.SHIP_FRICTION
 
-    def control_p2(self, keys, dt: float):
+    def control_p2(self, keys, joysticks, dt: float):
         sign = self._drunk_turn()
-        if keys[pg.K_a]:
+        turn = 0
+        if keys[pg.K_a]: turn = -1
+        if keys[pg.K_d]: turn = 1
+        
+        thrust = keys[pg.K_w]
+
+        joy_list = list(joysticks.values())
+        if len(joy_list) > 1:
+            joy = joy_list[1]
+            axis_x = joy.get_axis(0)
+            if axis_x < -0.2: turn = -1
+            elif axis_x > 0.2: turn = 1
+            if joy.get_button(0): thrust = True
+
+        if turn == -1:
             self.angle -= sign * C.SHIP_TURN_SPEED * dt
-        if keys[pg.K_d]:
+        elif turn == 1:
             self.angle += sign * C.SHIP_TURN_SPEED * dt
-        if keys[pg.K_w]:
+            
+        if thrust:
             self.vel += angle_to_vec(self._drunk_thrust_angle()) * C.SHIP_THRUST * dt
+            
         self.vel *= C.SHIP_FRICTION
 
     def fire(self):

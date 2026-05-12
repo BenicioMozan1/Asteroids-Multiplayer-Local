@@ -282,6 +282,13 @@ class Game:
         self.go_fade      = 0.0
         self.final_score1 = 0
         self.final_score2 = 0
+        
+        pg.joystick.init()
+        self.joysticks = {}
+        for i in range(pg.joystick.get_count()):
+            joy = pg.joystick.Joystick(i)
+            joy.init()
+            self.joysticks[joy.get_instance_id()] = joy
 
     # ─────────────────────────────────────────────────────────
     #  Main loop
@@ -294,6 +301,15 @@ class Game:
                 if e.type == pg.QUIT:
                     pg.quit()
                     sys.exit(0)
+
+                if e.type == pg.JOYDEVICEADDED:
+                    joy = pg.joystick.Joystick(e.device_index)
+                    joy.init()
+                    self.joysticks[joy.get_instance_id()] = joy
+
+                if e.type == pg.JOYDEVICEREMOVED:
+                    if e.instance_id in self.joysticks:
+                        del self.joysticks[e.instance_id]
 
                 if e.type == pg.KEYDOWN:
                     if e.key == pg.K_ESCAPE:
@@ -338,6 +354,38 @@ class Game:
                         if e.key == pg.K_t:
                             self.world.try_spread(2)
 
+                if e.type == pg.JOYBUTTONDOWN:
+                    joy_list = list(self.joysticks.values())
+                    player = None
+                    if len(joy_list) > 0 and e.instance_id == joy_list[0].get_instance_id():
+                        player = 1
+                    elif len(joy_list) > 1 and e.instance_id == joy_list[1].get_instance_id():
+                        player = 2
+
+                    if player is not None:
+                        if self.scene.name == "lobby":
+                            if e.button == 0:  # A button to join
+                                self.lobby.join(player)
+                            if self.lobby.both_joined() and e.button == 7:  # Start button
+                                self.world = World(self.font)
+                                self.scene = Scene("play")
+                        
+                        elif self.scene.name == "game_over":
+                            if e.button == 7:  # Start button
+                                self.world   = World(self.font)
+                                self.go_fade = 0.0
+                                self.scene   = Scene("play")
+
+                        elif self.scene.name == "play":
+                            if e.button == 2:  # X
+                                self.world.try_fire(player)
+                            if e.button == 1:  # B
+                                self.world.hyperspace(player)
+                            if e.button == 3:  # Y
+                                self.world.try_shield(player)
+                            if e.button == 5:  # RB
+                                self.world.try_spread(player)
+
             keys = pg.key.get_pressed()
             self.screen.fill(C.BLACK)
 
@@ -345,7 +393,7 @@ class Game:
                 self.lobby.update(dt)
                 self.lobby.draw(self.screen)
             elif self.scene.name == "play":
-                self.world.update(dt, keys)
+                self.world.update(dt, keys, self.joysticks)
                 self.world.draw(self.screen, self.font)
                 if self.world.game_over:
                     self.final_score1 = self.world.score1

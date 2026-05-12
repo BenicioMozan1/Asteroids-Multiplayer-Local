@@ -326,7 +326,7 @@ class World:
     #  Update
     # ─────────────────────────────────────────────────────────
 
-    def update(self, dt: float, keys):
+    def update(self, dt: float, keys, joysticks):
         # ── freeze ──
         if self.freeze_timer > 0:
             self.freeze_timer -= dt
@@ -337,20 +337,33 @@ class World:
 
         # ── ship control ──
         if self.ship1.alive:
-            self.ship1.control_p1(keys, dt)
+            self.ship1.control_p1(keys, joysticks, dt)
         if self.ship2.alive:
-            self.ship2.control_p2(keys, dt)
+            self.ship2.control_p2(keys, joysticks, dt)
 
         # ── tether key check (ambos devem segurar) ──
         # P1: KP5  |  P2: F
         p1_tether = keys[pg.K_KP5]
         p2_tether = keys[pg.K_f]
+        joy_list = list(joysticks.values())
+        if len(joy_list) > 0 and joy_list[0].get_button(4):  # LB
+            p1_tether = True
+        if len(joy_list) > 1 and joy_list[1].get_button(4):  # LB
+            p2_tether = True
+
         if p1_tether and p2_tether:
             self.try_tether()
 
         # ── charge shot hold/release ──
-        self._update_charge(self.ship1, 1, keys[pg.K_KP6], dt)
-        self._update_charge(self.ship2, 2, keys[pg.K_r],   dt)
+        p1_charge = keys[pg.K_KP6]
+        if len(joy_list) > 0 and joy_list[0].get_axis(5) > 0.5:  # RT
+            p1_charge = True
+        self._update_charge(self.ship1, 1, p1_charge, dt)
+
+        p2_charge = keys[pg.K_r]
+        if len(joy_list) > 1 and joy_list[1].get_axis(5) > 0.5:  # RT
+            p2_charge = True
+        self._update_charge(self.ship2, 2, p2_charge, dt)
 
         # ── crown / sabotage spawning ──
         self._update_powerup_spawns(dt)
