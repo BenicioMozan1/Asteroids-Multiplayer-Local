@@ -86,12 +86,16 @@ ICY_BLUE = (150, 220, 255)
 
 # ── Multiplayer ────────────────────────────────────────────────
 # Cores dos jogadores
-SHIP_P1_COLOR = (175, 169, 236)   # roxo claro
-SHIP_P2_COLOR = (93,  202, 165)   # verde claro
+SHIP_P1_COLOR = (175, 169, 236)   # Roxo claro
+SHIP_P2_COLOR = (93,  202, 165)   # Verde claro
+SHIP_P3_COLOR = (236, 169, 169)   # Rosa / Vermelho claro
+SHIP_P4_COLOR = (236, 225, 169)   # Amarelo claro
 
-# Spawn
-SHIP1_START = (WIDTH // 3,       HEIGHT // 2)
-SHIP2_START = (2 * WIDTH // 3,   HEIGHT // 2)
+# Spawn (Os 4 cantos)
+SHIP1_START = (WIDTH // 4,       HEIGHT // 4)
+SHIP2_START = (3 * WIDTH // 4,   HEIGHT // 4)
+SHIP3_START = (WIDTH // 4,       3 * HEIGHT // 4)
+SHIP4_START = (3 * WIDTH // 4,   3 * HEIGHT // 4)
 
 # Tether
 TETHER_DURATION   = 5.0

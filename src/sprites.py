@@ -213,7 +213,13 @@ class Ship(pg.sprite.Sprite):
         self.r         = C.SHIP_RADIUS
         self.rect      = pg.Rect(0, 0, self.r * 2, self.r * 2)
         self.player_id = player_id
-        self.color     = C.SHIP_P1_COLOR if player_id == 1 else C.SHIP_P2_COLOR
+
+        # Define a cor baseada no ID (1, 2, 3 ou 4)
+        if player_id == 1: self.color = C.SHIP_P1_COLOR
+        elif player_id == 2: self.color = C.SHIP_P2_COLOR
+        elif player_id == 3: self.color = C.SHIP_P3_COLOR
+        else: self.color = C.SHIP_P4_COLOR
+        
         # abilities
         self.has_spread_shot = False
         self.shield_active   = False
@@ -246,24 +252,34 @@ class Ship(pg.sprite.Sprite):
             return self.angle
         return self.angle + 35.0 * math.sin(self.drunk_phase * 6.0)
 
-    def control_p1(self, keys, dt: float):
+    def control_ship(self, dt: float):
         sign = self._drunk_turn()
-        if keys[pg.K_LEFT]:
-            self.angle -= sign * C.SHIP_TURN_SPEED * dt
-        if keys[pg.K_RIGHT]:
-            self.angle += sign * C.SHIP_TURN_SPEED * dt
-        if keys[pg.K_UP]:
-            self.vel += angle_to_vec(self._drunk_thrust_angle()) * C.SHIP_THRUST * dt
-        self.vel *= C.SHIP_FRICTION
+        turn_input = 0
+        thrust_input = 0
+        
+        # O player_id vai de 1 a 4. O joystick correspondente vai de 0 a 3.
+        joy_id = self.player_id - 1
+        
+        # Lê o controle apenas se ele estiver conectado
+        if pg.joystick.get_count() > joy_id:
+            joy = pg.joystick.Joystick(joy_id)
+            
+            # Analógico Esquerdo Horizontal para virar (Eixo 0)
+            if joy.get_numaxes() > 0:
+                axis_x = joy.get_axis(0)
+                if abs(axis_x) > 0.2:
+                    turn_input = axis_x
+                    
+            # Gatilho R2/RT para acelerar (Eixo 5)
+            if joy.get_numaxes() > 5:
+                axis_r2 = joy.get_axis(5)
+                if axis_r2 > 0.0: 
+                    thrust_input = 1
 
-    def control_p2(self, keys, dt: float):
-        sign = self._drunk_turn()
-        if keys[pg.K_a]:
-            self.angle -= sign * C.SHIP_TURN_SPEED * dt
-        if keys[pg.K_d]:
-            self.angle += sign * C.SHIP_TURN_SPEED * dt
-        if keys[pg.K_w]:
+        self.angle += turn_input * sign * C.SHIP_TURN_SPEED * dt
+        if thrust_input > 0:
             self.vel += angle_to_vec(self._drunk_thrust_angle()) * C.SHIP_THRUST * dt
+            
         self.vel *= C.SHIP_FRICTION
 
     def fire(self):
