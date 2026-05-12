@@ -213,7 +213,13 @@ class Ship(pg.sprite.Sprite):
         self.r         = C.SHIP_RADIUS
         self.rect      = pg.Rect(0, 0, self.r * 2, self.r * 2)
         self.player_id = player_id
-        self.color     = C.SHIP_P1_COLOR if player_id == 1 else C.SHIP_P2_COLOR
+
+        # Define a cor baseada no ID (1, 2, 3 ou 4)
+        if player_id == 1: self.color = C.SHIP_P1_COLOR
+        elif player_id == 2: self.color = C.SHIP_P2_COLOR
+        elif player_id == 3: self.color = C.SHIP_P3_COLOR
+        else: self.color = C.SHIP_P4_COLOR
+        
         # abilities
         self.has_spread_shot = False
         self.shield_active   = False
