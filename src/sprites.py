@@ -252,32 +252,54 @@ class Ship(pg.sprite.Sprite):
             return self.angle
         return self.angle + 35.0 * math.sin(self.drunk_phase * 6.0)
 
-    def control_ship(self, dt: float):
+    def control_p1(self, keys, joysticks, dt: float):
         sign = self._drunk_turn()
-        turn_input = 0
-        thrust_input = 0
+        turn = 0
+        if keys[pg.K_LEFT]: turn = -1
+        if keys[pg.K_RIGHT]: turn = 1
         
-        # O player_id vai de 1 a 4. O joystick correspondente vai de 0 a 3.
-        joy_id = self.player_id - 1
-        
-        # Lê o controle apenas se ele estiver conectado
-        if pg.joystick.get_count() > joy_id:
-            joy = pg.joystick.Joystick(joy_id)
-            
-            # Analógico Esquerdo Horizontal para virar (Eixo 0)
-            if joy.get_numaxes() > 0:
-                axis_x = joy.get_axis(0)
-                if abs(axis_x) > 0.2:
-                    turn_input = axis_x
-                    
-            # Gatilho R2/RT para acelerar (Eixo 5)
-            if joy.get_numaxes() > 5:
-                axis_r2 = joy.get_axis(5)
-                if axis_r2 > 0.0: 
-                    thrust_input = 1
+        thrust = keys[pg.K_UP]
 
-        self.angle += turn_input * sign * C.SHIP_TURN_SPEED * dt
-        if thrust_input > 0:
+        joy_list = list(joysticks.values())
+        if len(joy_list) > 0:
+            joy = joy_list[0]
+            axis_x = joy.get_axis(0)
+            if axis_x < -0.2: turn = -1
+            elif axis_x > 0.2: turn = 1
+            if joy.get_button(0): thrust = True
+
+        if turn == -1:
+            self.angle -= sign * C.SHIP_TURN_SPEED * dt
+        elif turn == 1:
+            self.angle += sign * C.SHIP_TURN_SPEED * dt
+            
+        if thrust:
+            self.vel += angle_to_vec(self._drunk_thrust_angle()) * C.SHIP_THRUST * dt
+            
+        self.vel *= C.SHIP_FRICTION
+
+    def control_p2(self, keys, joysticks, dt: float):
+        sign = self._drunk_turn()
+        turn = 0
+        if keys[pg.K_a]: turn = -1
+        if keys[pg.K_d]: turn = 1
+        
+        thrust = keys[pg.K_w]
+
+        joy_list = list(joysticks.values())
+        if len(joy_list) > 1:
+            joy = joy_list[1]
+            axis_x = joy.get_axis(0)
+            if axis_x < -0.2: turn = -1
+            elif axis_x > 0.2: turn = 1
+            if joy.get_button(0): thrust = True
+
+        if turn == -1:
+            self.angle -= sign * C.SHIP_TURN_SPEED * dt
+        elif turn == 1:
+            self.angle += sign * C.SHIP_TURN_SPEED * dt
+            
+        if thrust:
             self.vel += angle_to_vec(self._drunk_thrust_angle()) * C.SHIP_THRUST * dt
             
         self.vel *= C.SHIP_FRICTION

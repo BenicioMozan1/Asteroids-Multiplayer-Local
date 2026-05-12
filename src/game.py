@@ -91,9 +91,23 @@ class Game:
         self.font = pg.font.SysFont("consolas", 18)
         self.big = pg.font.SysFont("consolas", 48)
         self.medium = pg.font.SysFont("consolas", 28)
-        self.scene = Scene("lobby")
-        self.lobby = Lobby(self.font, self.big, self.medium)
-        self.world = None
+        self.scene  = Scene("lobby")
+        self.lobby  = Lobby(self.font, self.big, self.medium)
+        self.world  = World(self.font)
+        self.go_fade      = 0.0
+        self.final_score1 = 0
+        self.final_score2 = 0
+        
+        pg.joystick.init()
+        self.joysticks = {}
+        for i in range(pg.joystick.get_count()):
+            joy = pg.joystick.Joystick(i)
+            joy.init()
+            self.joysticks[joy.get_instance_id()] = joy
+
+    # ─────────────────────────────────────────────────────────
+    #  Main loop
+    # ─────────────────────────────────────────────────────────
 
     def run(self):
         while True:
@@ -106,14 +120,34 @@ class Game:
             for e in pg.event.get():
                 if e.type == pg.QUIT: 
                     pg.quit()
-                    sys.exit()
+                    sys.exit(0)
 
-                if self.scene.name == "lobby":
-                    if e.type == pg.JOYBUTTONDOWN:
-                        self.lobby.join(e.joy)
-                        # Botão Start (7 no Xbox, 9 no PS) ou Botão 6 (como você usou)
-                        if e.button in (6, 7, 9) and self.lobby.get_joined_count() >= 2:
-                            self.world = World(self.font, self.lobby.joined)
+                if e.type == pg.JOYDEVICEADDED:
+                    joy = pg.joystick.Joystick(e.device_index)
+                    joy.init()
+                    self.joysticks[joy.get_instance_id()] = joy
+
+                if e.type == pg.JOYDEVICEREMOVED:
+                    if e.instance_id in self.joysticks:
+                        del self.joysticks[e.instance_id]
+
+                if e.type == pg.KEYDOWN:
+                    if e.key == pg.K_ESCAPE:
+                        if self.scene.name in ("game_over", "play"):
+                            self.scene = Scene("lobby")
+                            self.lobby = Lobby(self.font, self.big, self.medium)
+                        else:
+                            pg.quit()
+                            sys.exit(0)
+
+                    elif self.scene.name == "lobby":
+                        if e.key in P1_JOIN_KEYS:
+                            self.lobby.join(1)
+                        if e.key in P2_JOIN_KEYS:
+                            self.lobby.join(2)
+                        if self.lobby.both_joined() and e.key in (
+                                pg.K_RETURN, pg.K_SPACE, pg.K_KP_ENTER):
+                            self.world = World(self.font)
                             self.scene = Scene("play")
                     
                     # Teclado como backup para iniciar
@@ -134,12 +168,70 @@ class Game:
                     pg.quit()
                     sys.exit()
 
-            # 3. ATUALIZAÇÃO E DESENHO
+                    elif self.scene.name == "game_over":
+                        if e.key in (pg.K_RETURN, pg.K_SPACE):
+                            self.world   = World(self.font)
+                            self.go_fade = 0.0
+                            self.scene   = Scene("play")
+
+                    elif self.scene.name == "play":
+                        if e.key == pg.K_KP1:
+                            self.world.try_fire(1)
+                        if e.key == pg.K_KP2:
+                            self.world.hyperspace(1)
+                        if e.key == pg.K_KP3:
+                            self.world.try_shield(1)
+                        if e.key == pg.K_KP4:
+                            self.world.try_spread(1)
+                        if e.key == pg.K_g:
+                            self.world.try_fire(2)
+                        if e.key == pg.K_q:
+                            self.world.hyperspace(2)
+                        if e.key == pg.K_h:
+                            self.world.try_shield(2)
+                        if e.key == pg.K_t:
+                            self.world.try_spread(2)
+
+                if e.type == pg.JOYBUTTONDOWN:
+                    joy_list = list(self.joysticks.values())
+                    player = None
+                    if len(joy_list) > 0 and e.instance_id == joy_list[0].get_instance_id():
+                        player = 1
+                    elif len(joy_list) > 1 and e.instance_id == joy_list[1].get_instance_id():
+                        player = 2
+
+                    if player is not None:
+                        if self.scene.name == "lobby":
+                            if e.button == 0:  # A button to join
+                                self.lobby.join(player)
+                            if self.lobby.both_joined() and e.button == 7:  # Start button
+                                self.world = World(self.font)
+                                self.scene = Scene("play")
+                        
+                        elif self.scene.name == "game_over":
+                            if e.button == 7:  # Start button
+                                self.world   = World(self.font)
+                                self.go_fade = 0.0
+                                self.scene   = Scene("play")
+
+                        elif self.scene.name == "play":
+                            if e.button == 2:  # X
+                                self.world.try_fire(player)
+                            if e.button == 1:  # B
+                                self.world.hyperspace(player)
+                            if e.button == 3:  # Y
+                                self.world.try_shield(player)
+                            if e.button == 5:  # RB
+                                self.world.try_spread(player)
+
+            keys = pg.key.get_pressed()
+            self.screen.fill(C.BLACK)
+
             if self.scene.name == "lobby":
                 self.lobby.update(dt)
                 self.lobby.draw(self.screen)
             elif self.scene.name == "play":
-                self.world.update(dt)
+                self.world.update(dt, keys, self.joysticks)
                 self.world.draw(self.screen, self.font)
             
             pg.display.flip()

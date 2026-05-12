@@ -298,6 +298,70 @@ class World:
                 self.all_sprites.add(item)
                 self.sabotage_spawn_timer = C.SABOTAGE_SPAWN_EVERY
 
+    # ─────────────────────────────────────────────────────────
+    #  UFO targeting
+    # ─────────────────────────────────────────────────────────
+
+    def _nearest_ship_pos(self, ref_pos: Vec) -> Vec:
+        d1 = (ref_pos - self.ship1.pos).length() if self.ship1.alive else float("inf")
+        d2 = (ref_pos - self.ship2.pos).length() if self.ship2.alive else float("inf")
+        return self.ship1.pos if d1 <= d2 else self.ship2.pos
+
+    def ufo_try_fire(self):
+        for ufo in self.ufos:
+            target = self._nearest_ship_pos(ufo.pos)
+            bullet = ufo.fire_at(target)
+            if bullet:
+                self.ufo_bullets.add(bullet)
+                self.all_sprites.add(bullet)
+
+    # ─────────────────────────────────────────────────────────
+    #  Update
+    # ─────────────────────────────────────────────────────────
+
+    def update(self, dt: float, keys, joysticks):
+        # ── freeze ──
+        if self.freeze_timer > 0:
+            self.freeze_timer -= dt
+            if self.freeze_timer <= 0:
+                self.freeze_timer = 0
+                for a in self.asteroids:
+                    a.frozen = False
+
+        # ── ship control ──
+        if self.ship1.alive:
+            self.ship1.control_p1(keys, joysticks, dt)
+        if self.ship2.alive:
+            self.ship2.control_p2(keys, joysticks, dt)
+
+        # ── tether key check (ambos devem segurar) ──
+        # P1: KP5  |  P2: F
+        p1_tether = keys[pg.K_KP5]
+        p2_tether = keys[pg.K_f]
+        joy_list = list(joysticks.values())
+        if len(joy_list) > 0 and joy_list[0].get_button(4):  # LB
+            p1_tether = True
+        if len(joy_list) > 1 and joy_list[1].get_button(4):  # LB
+            p2_tether = True
+
+        if p1_tether and p2_tether:
+            self.try_tether()
+
+        # ── charge shot hold/release ──
+        p1_charge = keys[pg.K_KP6]
+        if len(joy_list) > 0 and joy_list[0].get_axis(5) > 0.5:  # RT
+            p1_charge = True
+        self._update_charge(self.ship1, 1, p1_charge, dt)
+
+        p2_charge = keys[pg.K_r]
+        if len(joy_list) > 1 and joy_list[1].get_axis(5) > 0.5:  # RT
+            p2_charge = True
+        self._update_charge(self.ship2, 2, p2_charge, dt)
+
+        # ── crown / sabotage spawning ──
+        self._update_powerup_spawns(dt)
+
+        # ── update all sprites ──
         self.all_sprites.update(dt)
 
         # ── Lógica do Tether ──
