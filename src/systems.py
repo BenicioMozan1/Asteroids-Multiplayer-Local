@@ -11,8 +11,12 @@ from sprites import (
     Asteroid, BossBullet, PowerAsteroid,
     Ship, GhostShip, TetherLine, FloatingText,
     UFO, BlackHole, ClockItem, LifeItem,
+    ChargeBeam, CrownItem, SabotageItem,
 )
-from utils import Vec, rand_edge_pos, rand_unit_vec, segment_circle_collision
+from utils import (
+    Vec, angle_to_vec, rand_edge_pos, rand_unit_vec,
+    segment_circle_collision,
+)
 
 
 class World:
@@ -36,6 +40,13 @@ class World:
         self.black_hole    = None
         self.clock_items   = pg.sprite.Group()
         self.life_items    = pg.sprite.Group()
+        self.crown_items   = pg.sprite.Group()
+        self.sabotage_items = pg.sprite.Group()
+        self.beams         = pg.sprite.Group()
+
+        # ── charge shot ────────────────────────────────────────
+        self.crown_spawn_timer   = C.CROWN_SPAWN_FIRST
+        self.sabotage_spawn_timer = C.SABOTAGE_SPAWN_FIRST
 
         # ── scores / lives ─────────────────────────────────────
         self.score1 = 0
@@ -145,6 +156,22 @@ class World:
     def _bullets(self, player: int) -> pg.sprite.Group:
         return self.bullets1 if player == 1 else self.bullets2
 
+    def _add_score(self, player: int, amount: int) -> int:
+        ship = self._ship(player)
+        if ship.has_crown:
+            amount = int(amount * C.CROWN_SCORE_MULT)
+        if player == 1:
+            self.score1 += amount
+        else:
+            self.score2 += amount
+        return amount
+
+    def _sub_score(self, player: int, amount: int):
+        if player == 1:
+            self.score1 = max(0, self.score1 - amount)
+        else:
+            self.score2 = max(0, self.score2 - amount)
+
     def try_fire(self, player: int):
         ship    = self._ship(player)
         bullets = self._bullets(player)
@@ -198,6 +225,87 @@ class World:
         self.tether.active = True
 
     # ─────────────────────────────────────────────────────────
+    #  Charge shot
+    # ─────────────────────────────────────────────────────────
+
+    def _update_charge(self, ship: Ship, player: int, held: bool, dt: float):
+        if not ship.alive:
+            ship.charging = False
+            ship.charge_timer = 0.0
+            return
+        if ship.charge_cooldown > 0:
+            ship.charge_cooldown -= dt
+            if ship.charge_cooldown < 0:
+                ship.charge_cooldown = 0.0
+            ship.charging = False
+            ship.charge_timer = 0.0
+            return
+        if held:
+            ship.charging = True
+            ship.charge_timer += dt
+            cap = C.CHARGE_TIME * 1.5
+            if ship.charge_timer > cap:
+                ship.charge_timer = cap
+        else:
+            if ship.charging and ship.charge_timer >= C.CHARGE_TIME:
+                self._fire_beam(player)
+                ship.charge_cooldown = C.CHARGE_COOLDOWN
+            ship.charging = False
+            ship.charge_timer = 0.0
+
+    def _fire_beam(self, player: int):
+        ship  = self._ship(player)
+        start = Vec(ship.pos)
+        dirv  = angle_to_vec(ship.angle)
+        end   = start + dirv * C.CHARGE_BEAM_LENGTH
+        beam  = ChargeBeam(start, end, player, ship.color)
+        self.beams.add(beam)
+        self.all_sprites.add(beam)
+        ft = FloatingText(Vec(ship.pos + dirv * 24),
+                          "CHARGE!", ship.color, self.font)
+        self.all_sprites.add(ft)
+
+    # ─────────────────────────────────────────────────────────
+    #  Crown / Sabotage spawning
+    # ─────────────────────────────────────────────────────────
+
+    def _spawn_pos_away_from_ships(self, min_dist: float = 120.0) -> Vec:
+        for _ in range(20):
+            pos = Vec(uniform(40, C.WIDTH - 40), uniform(80, C.HEIGHT - 40))
+            if ((pos - self.ship1.pos).length() > min_dist and
+                    (pos - self.ship2.pos).length() > min_dist):
+                return pos
+        return Vec(C.WIDTH // 2, C.HEIGHT // 2)
+
+    def _update_powerup_spawns(self, dt: float):
+        any_crown_present = (
+            len(self.crown_items) > 0
+            or self.ship1.has_crown
+            or self.ship2.has_crown
+        )
+        if not any_crown_present:
+            self.crown_spawn_timer -= dt
+            if self.crown_spawn_timer <= 0:
+                pos = self._spawn_pos_away_from_ships()
+                crown = CrownItem(pos)
+                self.crown_items.add(crown)
+                self.all_sprites.add(crown)
+                self.crown_spawn_timer = C.CROWN_SPAWN_EVERY
+                ft = FloatingText(Vec(C.WIDTH // 2, 64),
+                                  "COROA AMALDIÇOADA APARECEU!",
+                                  C.CROWN_COLOR, self.font)
+                self.all_sprites.add(ft)
+
+        if len(self.sabotage_items) == 0:
+            self.sabotage_spawn_timer -= dt
+            if self.sabotage_spawn_timer <= 0:
+                pos = self._spawn_pos_away_from_ships()
+                item = SabotageItem(pos)
+                self.sabotage_items.add(item)
+                self.all_sprites.add(item)
+                self.sabotage_spawn_timer = C.SABOTAGE_SPAWN_EVERY
+
+    # ─────────────────────────────────────────────────────────
     #  UFO targeting
     # ─────────────────────────────────────────────────────────
 
@@ -240,6 +348,13 @@ class World:
         if p1_tether and p2_tether:
             self.try_tether()
 
+        # ── charge shot hold/release ──
+        self._update_charge(self.ship1, 1, keys[pg.K_KP6], dt)
+        self._update_charge(self.ship2, 2, keys[pg.K_r],   dt)
+
+        # ── crown / sabotage spawning ──
+        self._update_powerup_spawns(dt)
+
         # ── update all sprites ──
         self.all_sprites.update(dt)
 
@@ -273,10 +388,10 @@ class World:
                         self.ship1.pos, self.ship2.pos, ast.pos, ast.r):
                     score = C.AST_SIZES[ast.size]["score"]
                     half  = score // 2
-                    self.score1 += half
-                    self.score2 += score - half
-                    # visual feedback
-                    ft = FloatingText(Vec(ast.pos), f"TETHER! +{half}/{score - half}",
+                    a1 = self._add_score(1, half)
+                    a2 = self._add_score(2, score - half)
+                    ft = FloatingText(Vec(ast.pos),
+                                      f"TETHER! +{a1}/{a2}",
                                       (255, 220, 80), self.font)
                     self.all_sprites.add(ft)
                     ast.kill()
@@ -444,6 +559,105 @@ class World:
                     else:
                         self.lives2 += 1
 
+        # ── crown pickup ──
+        for ship, player in ((self.ship1, 1), (self.ship2, 2)):
+            if not ship.alive or ship.has_crown:
+                continue
+            for item in list(self.crown_items):
+                if (item.pos - ship.pos).length() < (item.r + ship.r):
+                    item.kill()
+                    if not (self.ship1.has_crown or self.ship2.has_crown):
+                        ship.has_crown = True
+                        ship.steal_cooldown = C.CROWN_STEAL_COOLDOWN
+                        ft = FloatingText(Vec(ship.pos),
+                                          "COROA! +50% / 2x DANO",
+                                          C.CROWN_COLOR, self.font)
+                        self.all_sprites.add(ft)
+                    break
+
+        # ── sabotage pickup → opponent gets drunk ──
+        for ship, player in ((self.ship1, 1), (self.ship2, 2)):
+            if not ship.alive:
+                continue
+            for item in list(self.sabotage_items):
+                if (item.pos - ship.pos).length() < (item.r + ship.r):
+                    item.kill()
+                    other = self._ship(3 - player)
+                    if other.alive:
+                        other.drunk_timer = C.SABOTAGE_DURATION
+                        other.drunk_phase = 0.0
+                        ft = FloatingText(Vec(ship.pos),
+                                          "SABOTAGEM!", C.SABOTAGE_COLOR,
+                                          self.font)
+                        self.all_sprites.add(ft)
+                        ft2 = FloatingText(Vec(other.pos),
+                                           "BÊBADO!", C.SABOTAGE_COLOR,
+                                           self.font)
+                        self.all_sprites.add(ft2)
+                    break
+
+        # ── crown steal: ship-ship collision transfers crown ──
+        if (self.ship1.alive and self.ship2.alive
+                and (self.ship1.has_crown ^ self.ship2.has_crown)):
+            if ((self.ship1.pos - self.ship2.pos).length()
+                    < (self.ship1.r + self.ship2.r)):
+                wearer = self.ship1 if self.ship1.has_crown else self.ship2
+                thief  = self.ship2 if self.ship1.has_crown else self.ship1
+                if wearer.steal_cooldown <= 0 and thief.steal_cooldown <= 0:
+                    wearer.has_crown = False
+                    thief.has_crown  = True
+                    wearer.steal_cooldown = C.CROWN_STEAL_COOLDOWN
+                    thief.steal_cooldown  = C.CROWN_STEAL_COOLDOWN
+                    ft = FloatingText(Vec(thief.pos),
+                                      "ROUBOU A COROA!",
+                                      C.CROWN_COLOR, self.font)
+                    self.all_sprites.add(ft)
+
+        # ── charge beams vs world (bypasses shield) ──
+        for beam in list(self.beams):
+            if beam.processed:
+                continue
+            beam.processed = True
+            for ast in list(self.asteroids):
+                if not ast.alive():
+                    continue
+                if segment_circle_collision(
+                        beam.start, beam.end, ast.pos, ast.r):
+                    ast.last_hit_player = beam.player_id
+                    if isinstance(ast, PowerAsteroid):
+                        self._award_score(ast.size, beam.player_id, ast)
+                        item = LifeItem(Vec(ast.pos))
+                        self.life_items.add(item)
+                        self.all_sprites.add(item)
+                        ast.kill()
+                    else:
+                        self.split_asteroid(ast, beam.player_id)
+            for ufo in list(self.ufos):
+                if segment_circle_collision(
+                        beam.start, beam.end, ufo.pos, ufo.r):
+                    score = (C.UFO_SMALL["score"] if ufo.small
+                             else C.UFO_BIG["score"])
+                    self._add_score(beam.player_id, score)
+                    ufo.kill()
+            for b in list(self.ufo_bullets):
+                if segment_circle_collision(
+                        beam.start, beam.end, b.pos, b.r):
+                    b.kill()
+            other_id = 3 - beam.player_id
+            other    = self._ship(other_id)
+            if other.alive and self.safe <= 0:
+                if segment_circle_collision(
+                        beam.start, beam.end, other.pos, other.r):
+                    if other_id == 1:
+                        self.lives1 = 0
+                    else:
+                        self.lives2 = 0
+                    ft = FloatingText(Vec(other.pos),
+                                      "VAPORIZADO!",
+                                      (255, 80, 80), self.font)
+                    self.all_sprites.add(ft)
+                    self.ship_die(other_id)
+
         # ── ghost rescue ──
         if self.ghost2 is not None and self.ship1.alive:
             if (self.ship1.pos - self.ghost2.pos).length() < (self.ship1.r + self.ghost2.r + 10):
@@ -498,10 +712,7 @@ class World:
                     if (ufo.pos - b.pos).length() < (ufo.r + b.r):
                         score = (C.UFO_SMALL["score"] if ufo.small
                                  else C.UFO_BIG["score"])
-                        if player == 1:
-                            self.score1 += score
-                        else:
-                            self.score2 += score
+                        self._add_score(player, score)
                         ufo.kill()
                         b.kill()
                         break
@@ -525,35 +736,24 @@ class World:
     # ─────────────────────────────────────────────────────────
 
     def _award_score(self, size: str, killer: int, ast: Asteroid):
-        """Award points for destroying an asteroid, applying kill-steal bonus."""
         base = C.AST_SIZES[size]["score"]
         if killer == 0:
-            # UFO kill or tether — no player score here
             return
 
-        first = ast.first_hit_player
-        victim = 3 - killer  # the other player
+        first  = ast.first_hit_player
+        victim = 3 - killer
 
         if first != 0 and first != killer:
-            # Kill steal! killer takes base + bonus, victim loses bonus
-            steal = int(base * C.KILL_STEAL_BONUS)
-            total = base + steal
-            if player := killer:
-                if player == 1:
-                    self.score1 += total
-                    self.score2  = max(0, self.score2 - steal)
-                else:
-                    self.score2 += total
-                    self.score1  = max(0, self.score1 - steal)
+            steal   = int(base * C.KILL_STEAL_BONUS)
+            total   = base + steal
+            awarded = self._add_score(killer, total)
+            self._sub_score(victim, steal)
             color = C.SHIP_P1_COLOR if killer == 1 else C.SHIP_P2_COLOR
             ft = FloatingText(Vec(ast.pos),
-                              f"STEAL! +{total}", color, self.font)
+                              f"STEAL! +{awarded}", color, self.font)
             self.all_sprites.add(ft)
         else:
-            if killer == 1:
-                self.score1 += base
-            else:
-                self.score2 += base
+            self._add_score(killer, base)
 
     def split_asteroid(self, ast: Asteroid, killer: int):
         self._award_score(ast.size, killer, ast)
@@ -577,21 +777,33 @@ class World:
     # ─────────────────────────────────────────────────────────
 
     def ship_die(self, player: int):
+        ship = self._ship(player)
+        damage = C.CROWN_DAMAGE_MULT if ship.has_crown else 1
+        if ship.has_crown:
+            drop_pos = Vec(ship.pos)
+            ship.has_crown = False
+            crown = CrownItem(drop_pos)
+            self.crown_items.add(crown)
+            self.all_sprites.add(crown)
+            ft = FloatingText(drop_pos, "COROA CAIU!", C.CROWN_COLOR, self.font)
+            self.all_sprites.add(ft)
+
         if player == 1:
-            self.lives1 -= 1
+            self.lives1 -= damage
             if self.lives1 <= 0:
+                self.lives1 = 0
                 self.ship1.alive = False
                 self.ship1.kill()
                 self.ghost1 = GhostShip(self.ship1.pos, self.ship1.angle, 1)
                 self.all_sprites.add(self.ghost1)
-                # check immediate game over (other also dead)
                 if not self.ship2.alive and self.ghost2 is None:
                     self.game_over = True
             else:
                 self._respawn(self.ship1, Vec(C.SHIP1_START))
         else:
-            self.lives2 -= 1
+            self.lives2 -= damage
             if self.lives2 <= 0:
+                self.lives2 = 0
                 self.ship2.alive = False
                 self.ship2.kill()
                 self.ghost2 = GhostShip(self.ship2.pos, self.ship2.angle, 2)
@@ -626,7 +838,7 @@ class World:
             self.ghost2.draw(surf)
 
         # ── HUD line ──
-        pg.draw.line(surf, (60, 60, 60), (0, 50), (C.WIDTH, 50), width=1)
+        pg.draw.line(surf, (60, 60, 60), (0, 70), (C.WIDTH, 70), width=1)
 
         # ── P1 HUD (left) ──
         hearts1 = "♥" * max(0, self.lives1)
@@ -653,6 +865,25 @@ class World:
             sh = font.render("SHIELD OK", True, C.SHIELD_COLOR)
             surf.blit(sh, (140, 30))
 
+        # P1 row 3 — charge / crown / drunk
+        cx_p1 = 10
+        if self.ship1.charge_cooldown > 0:
+            chs = font.render(f"CHARGE {self.ship1.charge_cooldown:.0f}s",
+                              True, C.GRAY)
+        elif self.ship1.charging:
+            pct = min(100, int(100 * self.ship1.charge_timer / C.CHARGE_TIME))
+            chs = font.render(f"CHARGE {pct}%", True, C.CHARGE_BEAM_GLOW)
+        else:
+            chs = font.render("CHARGE OK", True, C.CHARGE_BEAM_GLOW)
+        surf.blit(chs, (cx_p1, 50))
+        if self.ship1.has_crown:
+            cr = font.render("👑 COROA", True, C.CROWN_COLOR)
+            surf.blit(cr, (cx_p1 + 140, 50))
+        if self.ship1.drunk_timer > 0:
+            dr = font.render(f"BÊBADO {self.ship1.drunk_timer:.1f}s",
+                             True, C.SABOTAGE_COLOR)
+            surf.blit(dr, (cx_p1 + 240, 50))
+
         # ── P2 HUD (right) ──
         hearts2 = "♥" * max(0, self.lives2)
         p2_str  = f"{self.score2:06d}  {hearts2} P2"
@@ -677,6 +908,28 @@ class World:
         else:
             sh2 = font.render("SHIELD OK", True, C.SHIELD_COLOR)
             surf.blit(sh2, (C.WIDTH - sl2.get_width() - sh2.get_width() - 20, 30))
+
+        # P2 row 3 — charge / crown / drunk
+        if self.ship2.charge_cooldown > 0:
+            chs2 = font.render(f"CHARGE {self.ship2.charge_cooldown:.0f}s",
+                               True, C.GRAY)
+        elif self.ship2.charging:
+            pct = min(100, int(100 * self.ship2.charge_timer / C.CHARGE_TIME))
+            chs2 = font.render(f"CHARGE {pct}%", True, C.CHARGE_BEAM_GLOW)
+        else:
+            chs2 = font.render("CHARGE OK", True, C.CHARGE_BEAM_GLOW)
+        surf.blit(chs2, (C.WIDTH - chs2.get_width() - 10, 50))
+        if self.ship2.has_crown:
+            cr2 = font.render("👑 COROA", True, C.CROWN_COLOR)
+            surf.blit(cr2, (C.WIDTH - chs2.get_width() - cr2.get_width() - 20, 50))
+        if self.ship2.drunk_timer > 0:
+            offset = chs2.get_width() + 20
+            if self.ship2.has_crown:
+                offset += font.render("👑 COROA", True,
+                                      C.CROWN_COLOR).get_width() + 10
+            dr2 = font.render(f"BÊBADO {self.ship2.drunk_timer:.1f}s",
+                              True, C.SABOTAGE_COLOR)
+            surf.blit(dr2, (C.WIDTH - dr2.get_width() - offset, 50))
 
         # ── Centre: WAVE ──
         w_surf = font.render(f"WAVE {self.wave}", True, C.WHITE)

@@ -107,3 +107,36 @@ KILL_STEAL_BONUS = 0.30   # 30 % do score base vai para o ladrão
 
 # Floating text
 FLOATING_TEXT_TTL = 1.5
+
+# ── Charge Shot ────────────────────────────────────────────────
+CHARGE_TIME          = 1.8
+CHARGE_COOLDOWN      = 14.0
+CHARGE_BEAM_LIFETIME = 0.35
+CHARGE_BEAM_LENGTH   = 1400
+CHARGE_BEAM_CORE     = (255, 255, 220)
+CHARGE_BEAM_GLOW     = (255, 180,  60)
+CHARGE_BEAM_AURA     = (255, 120,  20)
+CHARGE_BEAM_WIDTH    = 10
+
+# ── Cursed Crown ───────────────────────────────────────────────
+CROWN_SPAWN_FIRST    = 18.0
+CROWN_SPAWN_EVERY    = 35.0
+CROWN_TTL            = 22.0
+CROWN_SCORE_MULT     = 1.5
+CROWN_DAMAGE_MULT    = 2
+CROWN_COLOR          = (255, 215,  60)
+CROWN_GEM_COLOR      = (255,  80, 120)
+CROWN_STEAL_COOLDOWN = 1.2
+
+# ── Sabotage / Drunk ───────────────────────────────────────────
+SABOTAGE_SPAWN_FIRST = 14.0
+SABOTAGE_SPAWN_EVERY = 28.0
+SABOTAGE_TTL         = 18.0
+SABOTAGE_DURATION    = 5.5
+SABOTAGE_COLOR       = (200, 110, 255)
+SABOTAGE_GLOW        = (140,  60, 200)
+
+# ── Lobby ──────────────────────────────────────────────────────
+LOBBY_STAR_COUNT     = 90
+LOBBY_BG_TOP         = (8, 4, 22)
+LOBBY_BG_BOTTOM      = (2, 2, 8)

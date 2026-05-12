@@ -220,6 +220,16 @@ class Ship(pg.sprite.Sprite):
         self.shield_timer    = 0.0
         self.shield_cooldown = 0.0
         self.spread_cool     = 0.0
+        # charge shot
+        self.charging        = False
+        self.charge_timer    = 0.0
+        self.charge_cooldown = 0.0
+        # cursed crown
+        self.has_crown       = False
+        self.steal_cooldown  = 0.0
+        # sabotage
+        self.drunk_timer     = 0.0
+        self.drunk_phase     = 0.0
 
     def activate_shield(self):
         if self.shield_active or self.shield_cooldown > 0:
@@ -228,23 +238,32 @@ class Ship(pg.sprite.Sprite):
         self.shield_timer    = C.SHIELD_DURATION
         self.shield_cooldown = C.SHIELD_COOLDOWN
 
+    def _drunk_turn(self) -> int:
+        return -1 if self.drunk_timer > 0 else 1
+
+    def _drunk_thrust_angle(self) -> float:
+        if self.drunk_timer <= 0:
+            return self.angle
+        return self.angle + 35.0 * math.sin(self.drunk_phase * 6.0)
+
     def control_p1(self, keys, dt: float):
-        # movimento: setas apenas
+        sign = self._drunk_turn()
         if keys[pg.K_LEFT]:
-            self.angle -= C.SHIP_TURN_SPEED * dt
+            self.angle -= sign * C.SHIP_TURN_SPEED * dt
         if keys[pg.K_RIGHT]:
-            self.angle += C.SHIP_TURN_SPEED * dt
+            self.angle += sign * C.SHIP_TURN_SPEED * dt
         if keys[pg.K_UP]:
-            self.vel += angle_to_vec(self.angle) * C.SHIP_THRUST * dt
+            self.vel += angle_to_vec(self._drunk_thrust_angle()) * C.SHIP_THRUST * dt
         self.vel *= C.SHIP_FRICTION
 
     def control_p2(self, keys, dt: float):
+        sign = self._drunk_turn()
         if keys[pg.K_a]:
-            self.angle -= C.SHIP_TURN_SPEED * dt
+            self.angle -= sign * C.SHIP_TURN_SPEED * dt
         if keys[pg.K_d]:
-            self.angle += C.SHIP_TURN_SPEED * dt
+            self.angle += sign * C.SHIP_TURN_SPEED * dt
         if keys[pg.K_w]:
-            self.vel += angle_to_vec(self.angle) * C.SHIP_THRUST * dt
+            self.vel += angle_to_vec(self._drunk_thrust_angle()) * C.SHIP_THRUST * dt
         self.vel *= C.SHIP_FRICTION
 
     def fire(self):
@@ -294,11 +313,72 @@ class Ship(pg.sprite.Sprite):
             self.spread_cool -= dt
             if self.spread_cool < 0:
                 self.spread_cool = 0.0
+        if self.steal_cooldown > 0:
+            self.steal_cooldown -= dt
+            if self.steal_cooldown < 0:
+                self.steal_cooldown = 0.0
+        if self.drunk_timer > 0:
+            self.drunk_timer -= dt
+            self.drunk_phase += dt
+            if self.drunk_timer < 0:
+                self.drunk_timer = 0.0
         self.pos += self.vel * dt
         self.pos  = wrap_pos(self.pos)
         self.rect.center = self.pos
 
+    def _draw_crown(self, surf: pg.Surface):
+        cx, cy = int(self.pos.x), int(self.pos.y - self.r - 10)
+        w = 22
+        h = 12
+        base = [
+            (cx - w // 2, cy + h // 2),
+            (cx + w // 2, cy + h // 2),
+            (cx + w // 2, cy),
+            (cx + w // 3, cy - h),
+            (cx,          cy - 2),
+            (cx - w // 3, cy - h),
+            (cx - w // 2, cy),
+        ]
+        pg.draw.polygon(surf, C.CROWN_COLOR, base)
+        pg.draw.polygon(surf, (180, 140, 30), base, 1)
+        pg.draw.circle(surf, C.CROWN_GEM_COLOR, (cx, cy + 2), 2)
+        pg.draw.circle(surf, C.CROWN_GEM_COLOR, (cx - w // 3, cy + 2), 1)
+        pg.draw.circle(surf, C.CROWN_GEM_COLOR, (cx + w // 3, cy + 2), 1)
+
+    def _draw_charge_ring(self, surf: pg.Surface):
+        progress = min(1.0, self.charge_timer / C.CHARGE_TIME)
+        ring_r = int(self.r + 6 + 14 * progress)
+        full   = self.charge_timer >= C.CHARGE_TIME
+        pulse  = 0.5 + 0.5 * math.sin(self.charge_timer * 14)
+        if full:
+            col = (255, int(220 + 35 * pulse), int(80 + 80 * pulse))
+            alpha = 220
+        else:
+            col = (255, int(160 + 80 * progress), int(40 + 40 * progress))
+            alpha = int(120 + 100 * progress)
+        size = ring_r * 2 + 8
+        ring = pg.Surface((size, size), pg.SRCALPHA)
+        pg.draw.circle(ring, (*col, alpha), (size // 2, size // 2), ring_r, 3)
+        if full:
+            inner_r = int(self.r + 2 + 4 * pulse)
+            pg.draw.circle(ring, (*col, 90), (size // 2, size // 2), inner_r)
+        surf.blit(ring, (self.pos.x - size // 2, self.pos.y - size // 2))
+
+    def _draw_drunk_halo(self, surf: pg.Surface):
+        size = (self.r + 14) * 2
+        halo = pg.Surface((size, size), pg.SRCALPHA)
+        rings = 3
+        for i in range(rings):
+            wob   = math.sin(self.drunk_phase * 5 + i) * 4
+            r_off = int(self.r + 6 + i * 3 + wob)
+            alpha = 70 - i * 15
+            pg.draw.circle(halo, (*C.SABOTAGE_COLOR, alpha),
+                           (size // 2, size // 2), r_off, 1)
+        surf.blit(halo, (self.pos.x - size // 2, self.pos.y - size // 2))
+
     def draw(self, surf: pg.Surface):
+        if self.drunk_timer > 0:
+            self._draw_drunk_halo(surf)
         dirv  = angle_to_vec(self.angle)
         left  = angle_to_vec(self.angle + 140)
         right = angle_to_vec(self.angle - 140)
@@ -306,6 +386,8 @@ class Ship(pg.sprite.Sprite):
         p2 = self.pos + left  * self.r * 0.9
         p3 = self.pos + right * self.r * 0.9
         draw_poly(surf, [p1, p2, p3], self.color)
+        if self.charging and self.charge_timer > 0.05:
+            self._draw_charge_ring(surf)
         if self.invuln > 0 and int(self.invuln * 10) % 2 == 0:
             draw_circle(surf, self.pos, self.r + 6, self.color)
         if self.shield_active:
@@ -317,6 +399,8 @@ class Ship(pg.sprite.Sprite):
                            (shield_r + 2, shield_r + 2), shield_r, 3)
             surf.blit(sh_surf,
                       (self.pos.x - shield_r - 2, self.pos.y - shield_r - 2))
+        if self.has_crown:
+            self._draw_crown(surf)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -494,3 +578,136 @@ class BlackHole(pg.sprite.Sprite):
         pg.draw.circle(surf, C.PURPLE, self.pos, self.visual_r)
         pg.draw.circle(surf, C.VIOLET, self.pos, self.visual_r - 4, 2)
         pg.draw.circle(surf, C.BLACK,  self.pos, self.r)
+
+
+# ─────────────────────────────────────────────────────────────
+#  Charge Beam
+# ─────────────────────────────────────────────────────────────
+
+class ChargeBeam(pg.sprite.Sprite):
+    def __init__(self, start: Vec, end: Vec, player_id: int, color):
+        super().__init__()
+        self.start     = Vec(start)
+        self.end       = Vec(end)
+        self.player_id = player_id
+        self.color     = color
+        self.ttl       = C.CHARGE_BEAM_LIFETIME
+        self.life      = C.CHARGE_BEAM_LIFETIME
+        self.processed = False
+        self.rect      = pg.Rect(0, 0, 1, 1)
+
+    def update(self, dt: float):
+        self.ttl -= dt
+        if self.ttl <= 0:
+            self.kill()
+
+    def draw(self, surf: pg.Surface):
+        t      = max(0.0, self.ttl / self.life)
+        layer  = pg.Surface((C.WIDTH, C.HEIGHT), pg.SRCALPHA)
+        sx, sy = int(self.start.x), int(self.start.y)
+        ex, ey = int(self.end.x),   int(self.end.y)
+        a_aura = int(120 * t)
+        a_glow = int(200 * t)
+        a_core = int(255 * t)
+        pg.draw.line(layer, (*C.CHARGE_BEAM_AURA, a_aura),
+                     (sx, sy), (ex, ey), C.CHARGE_BEAM_WIDTH + 10)
+        pg.draw.line(layer, (*C.CHARGE_BEAM_GLOW, a_glow),
+                     (sx, sy), (ex, ey), C.CHARGE_BEAM_WIDTH + 4)
+        pg.draw.line(layer, (*self.color, a_glow),
+                     (sx, sy), (ex, ey), C.CHARGE_BEAM_WIDTH)
+        pg.draw.line(layer, (*C.CHARGE_BEAM_CORE, a_core),
+                     (sx, sy), (ex, ey), max(2, C.CHARGE_BEAM_WIDTH // 3))
+        pg.draw.circle(layer, (*C.CHARGE_BEAM_CORE, a_core),
+                       (sx, sy), int(18 * t))
+        surf.blit(layer, (0, 0))
+
+
+# ─────────────────────────────────────────────────────────────
+#  Cursed Crown
+# ─────────────────────────────────────────────────────────────
+
+class CrownItem(pg.sprite.Sprite):
+    def __init__(self, pos: Vec):
+        super().__init__()
+        self.pos   = Vec(pos)
+        self.r     = 14
+        self.ttl   = C.CROWN_TTL
+        self.pulse = 0.0
+        self.rect  = pg.Rect(0, 0, self.r * 2, self.r * 2)
+
+    def update(self, dt: float):
+        self.ttl   -= dt
+        self.pulse += dt
+        if self.ttl <= 0:
+            self.kill()
+        self.rect.center = self.pos
+
+    def draw(self, surf: pg.Surface):
+        glow_r = int(self.r + 8 + 4 * math.sin(self.pulse * 3))
+        glow   = pg.Surface((glow_r * 2, glow_r * 2), pg.SRCALPHA)
+        pg.draw.circle(glow, (*C.CROWN_COLOR, 60),
+                       (glow_r, glow_r), glow_r)
+        pg.draw.circle(glow, (*C.CROWN_COLOR, 110),
+                       (glow_r, glow_r), glow_r - 4)
+        surf.blit(glow, (self.pos.x - glow_r, self.pos.y - glow_r))
+
+        cx = int(self.pos.x)
+        cy = int(self.pos.y + math.sin(self.pulse * 2) * 2)
+        w  = 22
+        h  = 14
+        base = [
+            (cx - w // 2, cy + h // 2),
+            (cx + w // 2, cy + h // 2),
+            (cx + w // 2, cy),
+            (cx + w // 3, cy - h),
+            (cx,          cy - 2),
+            (cx - w // 3, cy - h),
+            (cx - w // 2, cy),
+        ]
+        pg.draw.polygon(surf, C.CROWN_COLOR, base)
+        pg.draw.polygon(surf, (140, 100, 20), base, 1)
+        pg.draw.circle(surf, C.CROWN_GEM_COLOR, (cx, cy + 3), 2)
+        pg.draw.circle(surf, C.CROWN_GEM_COLOR, (cx - w // 3, cy + 3), 1)
+        pg.draw.circle(surf, C.CROWN_GEM_COLOR, (cx + w // 3, cy + 3), 1)
+
+
+# ─────────────────────────────────────────────────────────────
+#  Sabotage / Drunk power-up
+# ─────────────────────────────────────────────────────────────
+
+class SabotageItem(pg.sprite.Sprite):
+    def __init__(self, pos: Vec):
+        super().__init__()
+        self.pos   = Vec(pos)
+        self.r     = 12
+        self.ttl   = C.SABOTAGE_TTL
+        self.pulse = 0.0
+        self.rect  = pg.Rect(0, 0, self.r * 2, self.r * 2)
+
+    def update(self, dt: float):
+        self.ttl   -= dt
+        self.pulse += dt
+        if self.ttl <= 0:
+            self.kill()
+        self.rect.center = self.pos
+
+    def draw(self, surf: pg.Surface):
+        glow_r = int(self.r + 10 + 3 * math.sin(self.pulse * 4))
+        glow   = pg.Surface((glow_r * 2, glow_r * 2), pg.SRCALPHA)
+        pg.draw.circle(glow, (*C.SABOTAGE_GLOW, 80),
+                       (glow_r, glow_r), glow_r)
+        surf.blit(glow, (self.pos.x - glow_r, self.pos.y - glow_r))
+
+        cx, cy = int(self.pos.x), int(self.pos.y)
+        # bottle body
+        bottle = pg.Rect(cx - 6, cy - 2, 12, 14)
+        pg.draw.rect(surf, C.SABOTAGE_COLOR, bottle, border_radius=2)
+        # neck
+        pg.draw.rect(surf, C.SABOTAGE_COLOR, (cx - 2, cy - 9, 4, 7))
+        # cap
+        pg.draw.rect(surf, (240, 230, 255), (cx - 3, cy - 11, 6, 3))
+        # bubbles
+        for i in range(3):
+            bx = cx + int(math.sin(self.pulse * 3 + i * 1.5) * 3)
+            by = cy + 8 - i * 3
+            pg.draw.circle(surf, (240, 230, 255), (bx, by), 1)
