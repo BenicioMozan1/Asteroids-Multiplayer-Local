@@ -226,6 +226,7 @@ class Ship(pg.sprite.Sprite):
         self.shield_timer    = 0.0
         self.shield_cooldown = 0.0
         self.spread_cool     = 0.0
+        self.hyper_cooldown  = 0.0
         # charge shot
         self.charging        = False
         self.charge_timer    = 0.0
@@ -252,56 +253,41 @@ class Ship(pg.sprite.Sprite):
             return self.angle
         return self.angle + 35.0 * math.sin(self.drunk_phase * 6.0)
 
-    def control_p1(self, keys, joysticks, dt: float):
+    def control(self, keys, joysticks, dt: float, input_binding):
+        """Controle unificado baseado no InputBinding do jogador."""
         sign = self._drunk_turn()
         turn = 0
-        if keys[pg.K_LEFT]: turn = -1
-        if keys[pg.K_RIGHT]: turn = 1
-        
-        thrust = keys[pg.K_UP]
+        thrust = False
 
-        joy_list = list(joysticks.values())
-        if len(joy_list) > 0:
-            joy = joy_list[0]
-            axis_x = joy.get_axis(0)
-            if axis_x < -0.2: turn = -1
-            elif axis_x > 0.2: turn = 1
-            if joy.get_button(0): thrust = True
+        if input_binding.input_type == C.INPUT_KEYBOARD_WASD:
+            # Teclado WASD
+            if keys[pg.K_a]: turn = -1
+            if keys[pg.K_d]: turn = 1
+            thrust = keys[pg.K_w]
+
+        elif input_binding.input_type == C.INPUT_KEYBOARD_ARROWS:
+            # Teclado Setas
+            if keys[pg.K_LEFT]: turn = -1
+            if keys[pg.K_RIGHT]: turn = 1
+            thrust = keys[pg.K_UP]
+
+        if input_binding.input_type == C.INPUT_GAMEPAD:
+            # Controle (gamepad) — busca pelo instance_id
+            joy = joysticks.get(input_binding.joy_instance_id)
+            if joy:
+                axis_x = joy.get_axis(0)
+                if axis_x < -0.2: turn = -1
+                elif axis_x > 0.2: turn = 1
+                if joy.get_button(0): thrust = True
 
         if turn == -1:
             self.angle -= sign * C.SHIP_TURN_SPEED * dt
         elif turn == 1:
             self.angle += sign * C.SHIP_TURN_SPEED * dt
-            
+
         if thrust:
             self.vel += angle_to_vec(self._drunk_thrust_angle()) * C.SHIP_THRUST * dt
-            
-        self.vel *= C.SHIP_FRICTION
 
-    def control_p2(self, keys, joysticks, dt: float):
-        sign = self._drunk_turn()
-        turn = 0
-        if keys[pg.K_a]: turn = -1
-        if keys[pg.K_d]: turn = 1
-        
-        thrust = keys[pg.K_w]
-
-        joy_list = list(joysticks.values())
-        if len(joy_list) > 1:
-            joy = joy_list[1]
-            axis_x = joy.get_axis(0)
-            if axis_x < -0.2: turn = -1
-            elif axis_x > 0.2: turn = 1
-            if joy.get_button(0): thrust = True
-
-        if turn == -1:
-            self.angle -= sign * C.SHIP_TURN_SPEED * dt
-        elif turn == 1:
-            self.angle += sign * C.SHIP_TURN_SPEED * dt
-            
-        if thrust:
-            self.vel += angle_to_vec(self._drunk_thrust_angle()) * C.SHIP_THRUST * dt
-            
         self.vel *= C.SHIP_FRICTION
 
     def fire(self):
@@ -328,10 +314,14 @@ class Ship(pg.sprite.Sprite):
         return bullets
 
     def hyperspace(self):
+        if self.hyper_cooldown > 0:
+            return False
         from random import uniform as _u
         self.pos    = Vec(_u(0, C.WIDTH), _u(0, C.HEIGHT))
         self.vel.xy = (0, 0)
         self.invuln = 1.0
+        self.hyper_cooldown = C.HYPERSPACE_COOLDOWN
+        return True
 
     def update(self, dt: float):
         if self.cool > 0:
@@ -351,6 +341,10 @@ class Ship(pg.sprite.Sprite):
             self.spread_cool -= dt
             if self.spread_cool < 0:
                 self.spread_cool = 0.0
+        if self.hyper_cooldown > 0:
+            self.hyper_cooldown -= dt
+            if self.hyper_cooldown < 0:
+                self.hyper_cooldown = 0.0
         if self.steal_cooldown > 0:
             self.steal_cooldown -= dt
             if self.steal_cooldown < 0:
@@ -451,7 +445,7 @@ class GhostShip(pg.sprite.Sprite):
         self.pos       = Vec(pos)
         self.angle     = angle
         self.player_id = player_id
-        self.color     = C.SHIP_P1_COLOR if player_id == 1 else C.SHIP_P2_COLOR
+        self.color     = [C.SHIP_P1_COLOR, C.SHIP_P2_COLOR, C.SHIP_P3_COLOR, C.SHIP_P4_COLOR][player_id - 1]
         self.timer     = C.GHOST_DURATION
         self.pulse     = 0.0
         self.r         = C.SHIP_RADIUS

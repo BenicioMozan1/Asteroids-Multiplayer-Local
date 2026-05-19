@@ -8,6 +8,7 @@ FPS = 60
 START_LIVES = 3
 SAFE_SPAWN_TIME = 2.0
 WAVE_DELAY = 2.0
+WIN_SCORE = 3000           # Pontuação para vencer a partida
 
 SHIP_RADIUS = 15
 SHIP_TURN_SPEED = 220.0
@@ -16,6 +17,7 @@ SHIP_FRICTION = 0.995
 SHIP_FIRE_RATE = 0.2
 SHIP_BULLET_SPEED = 420.0
 HYPERSPACE_COST = 250
+HYPERSPACE_COOLDOWN = 3.0
 
 SPREAD_COOLDOWN = 15.0
 
@@ -139,6 +141,15 @@ SABOTAGE_TTL         = 18.0
 SABOTAGE_DURATION    = 5.5
 SABOTAGE_COLOR       = (200, 110, 255)
 SABOTAGE_GLOW        = (140,  60, 200)
+
+# ── Input Bindings ────────────────────────────────────────────
+MAX_KEYBOARD_PLAYERS = 2
+MAX_GAMEPAD_PLAYERS  = 4
+MAX_TOTAL_PLAYERS    = 4
+
+INPUT_KEYBOARD_WASD   = "keyboard_wasd"
+INPUT_KEYBOARD_ARROWS = "keyboard_arrows"
+INPUT_GAMEPAD         = "gamepad"
 
 # ── Lobby ──────────────────────────────────────────────────────
 LOBBY_STAR_COUNT     = 90

@@ -18,8 +18,12 @@ from utils import (
 )
 
 class World:
-    def __init__(self, font: pg.font.Font, joined_list):
+    def __init__(self, font: pg.font.Font, bindings: dict):
         self.font = font
+        self.small_font = pg.font.SysFont("consolas", 15)
+        
+        # ── Bindings (player_id → InputBinding) ───────────────────
+        self.bindings = dict(bindings)
         
         # ── Dicionários Dinâmicos (Para 2 a 4 Jogadores) ───────────
         self.ships_dict = {}
@@ -43,18 +47,17 @@ class World:
         spawn_pos = [C.SHIP1_START, C.SHIP2_START, C.SHIP3_START, C.SHIP4_START]
         start_angles = [45.0, 135.0, -45.0, -135.0]
 
-        for i, joined in enumerate(joined_list):
-            if joined:
-                p_id = i + 1
-                ship = Ship(Vec(spawn_pos[i]), player_id=p_id)
-                ship.angle = start_angles[i]
-                
-                self.ships_dict[p_id] = ship
-                self.all_sprites.add(ship)
-                self.scores[p_id] = 0
-                self.lives[p_id] = C.START_LIVES
-                self.bullets_dict[p_id] = pg.sprite.Group()
-                self.tether_cool[p_id] = 0.0
+        for p_id, binding in self.bindings.items():
+            i = p_id - 1
+            ship = Ship(Vec(spawn_pos[i]), player_id=p_id)
+            ship.angle = start_angles[i]
+            
+            self.ships_dict[p_id] = ship
+            self.all_sprites.add(ship)
+            self.scores[p_id] = 0
+            self.lives[p_id] = C.START_LIVES
+            self.bullets_dict[p_id] = pg.sprite.Group()
+            self.tether_cool[p_id] = 0.0
 
         # ── Grupos de Inimigos e Itens ─────────────────────────────
         self.ufo_bullets = pg.sprite.Group()
@@ -82,6 +85,7 @@ class World:
         self.boss_defeated_timer = 0.0
         
         self.game_over = False
+        self.winner_id = None  # ID do jogador vencedor (por score)
 
     # ── Retrocompatibilidade com o game.py antigo caso precises ──
     @property
@@ -192,8 +196,8 @@ class World:
         if p_id not in self.ships_dict: return
         ship = self.ships_dict[p_id]
         if not ship.alive: return
-        ship.hyperspace()
-        self.scores[p_id] = max(0, self.scores[p_id] - C.HYPERSPACE_COST)
+        if ship.hyperspace():
+            self.scores[p_id] = max(0, self.scores[p_id] - C.HYPERSPACE_COST)
 
     def try_shield(self, p_id: int):
         if p_id in self.ships_dict and self.ships_dict[p_id].alive:
@@ -246,39 +250,18 @@ class World:
         ft = FloatingText(Vec(ship.pos + dirv * 24), "CHARGE!", ship.color, self.font)
         self.all_sprites.add(ft)
 
+
+
+
+
+
+
     # ─────────────────────────────────────────────────────────
-    #  Update Loop Principal
+    #  Powerup Spawning
     # ─────────────────────────────────────────────────────────
 
-    def update(self, dt: float):
-        # ── Freeze ──
-        if self.freeze_timer > 0:
-            self.freeze_timer -= dt
-            if self.freeze_timer <= 0:
-                self.freeze_timer = 0
-                for a in self.asteroids: a.frozen = False
-
-        # ── Controlos Contínuos (Movimento, Charge, Tether) ──
-        tether_requests = []
-        for p_id, ship in self.ships_dict.items():
-            if ship.alive:
-                ship.control_ship(dt)
-            
-            # Leitura direta do joystick para botões contínuos
-            joy_id = p_id - 1
-            is_charging = False
-            if pg.joystick.get_count() > joy_id:
-                joy = pg.joystick.Joystick(joy_id)
-                if joy.get_button(4): tether_requests.append(p_id)  # LB = Tether
-                if joy.get_button(5): is_charging = True            # RB = Charge
-            
-            self._update_charge(ship, p_id, is_charging, dt)
-
-        # Inicia tether entre os dois primeiros que apertarem
-        if len(tether_requests) >= 2:
-            self.try_tether(tether_requests[0], tether_requests[1])
-
-        # ── Powerups ──
+    def _update_powerup_spawns(self, dt: float):
+        # ── Crown ──
         any_crown = len(self.crown_items) > 0 or any(s.has_crown for s in self.ships_dict.values())
         if not any_crown:
             self.crown_spawn_timer -= dt
@@ -290,6 +273,7 @@ class World:
                 ft = FloatingText(Vec(C.WIDTH//2, 64), "COROA AMALDIÇOADA APARECEU!", C.CROWN_COLOR, self.font)
                 self.all_sprites.add(ft)
 
+        # ── Sabotage ──
         if not self.sabotage_items:
             self.sabotage_spawn_timer -= dt
             if self.sabotage_spawn_timer <= 0:
@@ -297,23 +281,6 @@ class World:
                 self.sabotage_items.add(item)
                 self.all_sprites.add(item)
                 self.sabotage_spawn_timer = C.SABOTAGE_SPAWN_EVERY
-
-    # ─────────────────────────────────────────────────────────
-    #  UFO targeting
-    # ─────────────────────────────────────────────────────────
-
-    def _nearest_ship_pos(self, ref_pos: Vec) -> Vec:
-        d1 = (ref_pos - self.ship1.pos).length() if self.ship1.alive else float("inf")
-        d2 = (ref_pos - self.ship2.pos).length() if self.ship2.alive else float("inf")
-        return self.ship1.pos if d1 <= d2 else self.ship2.pos
-
-    def ufo_try_fire(self):
-        for ufo in self.ufos:
-            target = self._nearest_ship_pos(ufo.pos)
-            bullet = ufo.fire_at(target)
-            if bullet:
-                self.ufo_bullets.add(bullet)
-                self.all_sprites.add(bullet)
 
     # ─────────────────────────────────────────────────────────
     #  Update
@@ -328,38 +295,63 @@ class World:
                 for a in self.asteroids:
                     a.frozen = False
 
-        # ── ship control ──
-        if self.ship1.alive:
-            self.ship1.control_p1(keys, joysticks, dt)
-        if self.ship2.alive:
-            self.ship2.control_p2(keys, joysticks, dt)
+        # ── ship control (unificado via binding) ──
+        for p_id, ship in self.ships_dict.items():
+            if ship.alive and p_id in self.bindings:
+                ship.control(keys, joysticks, dt, self.bindings[p_id])
 
-        # ── tether key check (ambos devem segurar) ──
-        # P1: KP5  |  P2: F
-        p1_tether = keys[pg.K_KP5]
-        p2_tether = keys[pg.K_f]
-        joy_list = list(joysticks.values())
-        if len(joy_list) > 0 and joy_list[0].get_button(4):  # LB
-            p1_tether = True
-        if len(joy_list) > 1 and joy_list[1].get_button(4):  # LB
-            p2_tether = True
+        # ── tether key check (quaisquer dois que segurem tether) ──
+        tether_requests = []
+        for p_id, binding in self.bindings.items():
+            if p_id not in self.ships_dict:
+                continue
+            held = False
+            if binding.input_type == C.INPUT_KEYBOARD_WASD:
+                held = keys[pg.K_f]
+            elif binding.input_type == C.INPUT_KEYBOARD_ARROWS:
+                held = keys[pg.K_KP5]
+            if binding.input_type == C.INPUT_GAMEPAD:
+                joy = joysticks.get(binding.joy_instance_id)
+                if joy:
+                    try:
+                        # Xbox LB (4) ou PS5 L1 (9)
+                        if joy.get_button(4) or joy.get_button(9):
+                            held = True
+                    except pg.error:
+                        pass
+            if held and p_id not in tether_requests:
+                tether_requests.append(p_id)
+        if len(tether_requests) >= 2:
+            self.try_tether(tether_requests[0], tether_requests[1])
 
-        if p1_tether and p2_tether:
-            self.try_tether()
-
-        # ── charge shot hold/release ──
-        p1_charge = keys[pg.K_KP6]
-        if len(joy_list) > 0 and joy_list[0].get_axis(5) > 0.5:  # RT
-            p1_charge = True
-        self._update_charge(self.ship1, 1, p1_charge, dt)
-
-        p2_charge = keys[pg.K_r]
-        if len(joy_list) > 1 and joy_list[1].get_axis(5) > 0.5:  # RT
-            p2_charge = True
-        self._update_charge(self.ship2, 2, p2_charge, dt)
+        # ── charge shot hold/release (unificado via binding) ──
+        for p_id, binding in self.bindings.items():
+            if p_id not in self.ships_dict:
+                continue
+            charge = False
+            if binding.input_type == C.INPUT_KEYBOARD_WASD:
+                charge = keys[pg.K_r]
+            elif binding.input_type == C.INPUT_KEYBOARD_ARROWS:
+                charge = keys[pg.K_KP6]
+            if binding.input_type == C.INPUT_GAMEPAD:
+                joy = joysticks.get(binding.joy_instance_id)
+                if joy:
+                    try:
+                        if joy.get_axis(5) > 0.5:
+                            charge = True
+                    except pg.error:
+                        pass
+            self._update_charge(self.ships_dict[p_id], p_id, charge, dt)
 
         # ── crown / sabotage spawning ──
         self._update_powerup_spawns(dt)
+
+        # ── Vitória por pontuação ──
+        for p_id, score in self.scores.items():
+            if score >= C.WIN_SCORE:
+                self.game_over = True
+                self.winner_id = p_id
+                return
 
         # ── update all sprites ──
         self.all_sprites.update(dt)
@@ -399,16 +391,18 @@ class World:
                 self.tether_cool[self.tether_p1_id] = C.TETHER_COOLDOWN
                 self.tether_cool[self.tether_p2_id] = C.TETHER_COOLDOWN
 
-        # ── Fantasmas (Rescue Decay) ──
+        # ── Fantasmas (Auto-Revive quando timer expira) ──
         for p_id, ghost in list(self.ghosts.items()):
             if ghost.timer <= 0:
                 ghost.kill()
                 del self.ghosts[p_id]
-
-        # Check Global Game Over
-        alive_count = sum(1 for s in self.ships_dict.values() if s.alive)
-        if alive_count == 0:
-            self.game_over = True
+                # Auto-revive: respawn sem perder pontos
+                dead_ship = self.ships_dict[p_id]
+                spawn_pos = [C.SHIP1_START, C.SHIP2_START, C.SHIP3_START, C.SHIP4_START][p_id - 1]
+                self._respawn(dead_ship, Vec(spawn_pos))
+                self.lives[p_id] = 1
+                ft = FloatingText(Vec(dead_ship.pos), "REVIVEU!", dead_ship.color, self.font)
+                self.all_sprites.add(ft)
 
         # ── Black Hole ──
         if self.black_hole:
@@ -708,14 +702,20 @@ class World:
             self.lives[p_id] = 0
             ship.alive = False
             ship.kill()
-            ghost = GhostShip(ship.pos, ship.angle, p_id)
-            self.ghosts[p_id] = ghost
-            self.all_sprites.add(ghost)
             
-            # Jogo acaba se não restar ninguém vivo
+            # Se AMBOS os jogadores estão mortos → game over instantâneo
             alive_count = sum(1 for s in self.ships_dict.values() if s.alive)
             if alive_count == 0:
                 self.game_over = True
+                # Limpa fantasmas restantes
+                for gid, g in list(self.ghosts.items()):
+                    g.kill()
+                self.ghosts.clear()
+            else:
+                # Se o outro ainda está vivo, vira fantasma (pode ser resgatado ou auto-revive)
+                ghost = GhostShip(ship.pos, ship.angle, p_id)
+                self.ghosts[p_id] = ghost
+                self.all_sprites.add(ghost)
         else:
             spawn_pos = [C.SHIP1_START, C.SHIP2_START, C.SHIP3_START, C.SHIP4_START][p_id - 1]
             self._respawn(ship, Vec(spawn_pos))
@@ -735,72 +735,106 @@ class World:
     # ─────────────────────────────────────────────────────────
 
     def draw(self, surf: pg.Surface, font: pg.font.Font):
-        # REMOVA A LINHA: self.all_sprites.draw(surf)
-        # COLOQUE ESTAS DUAS LINHAS NO LUGAR:
         for sprite in self.all_sprites:
             sprite.draw(surf)
             
         for ghost in self.ghosts.values():
             ghost.draw(surf)
 
-        # ── HUD para N Jogadores ──
-        y_pos = 10
-        
-        for p_id, score in self.scores.items():
+        # ── HUD: cada player num canto ──
+        # P1=top-left, P2=top-right, P3=bottom-left, P4=bottom-right
+        small = self.small_font
+        hud_positions = {
+            1: (10, 8, False),                      # x, y, right-aligned
+            2: (C.WIDTH - 10, 8, True),
+            3: (10, C.HEIGHT - 48, False),
+            4: (C.WIDTH - 10, C.HEIGHT - 48, True),
+        }
+
+        for p_id in sorted(self.scores.keys()):
             ship = self.ships_dict[p_id]
-            hearts = "♥" * max(0, self.lives[p_id])
-            txt = font.render(f"P{p_id} {hearts} {score:06d}", True, ship.color)
-            surf.blit(txt, (10, y_pos))
-            
-            # Cooldowns alinhados à direita do score
-            x_st = 200
-            
+            score = self.scores[p_id]
+            hearts = "\u2665" * max(0, self.lives[p_id])
+            if not hearts:
+                hearts = "MORTO"
+
+            hx, hy, is_right = hud_positions.get(p_id, (10, 8, False))
+
+            # Linha 1: Player, vidas e score
+            line1 = f"P{p_id} {hearts} {score:06d}"
+            txt1 = font.render(line1, True, ship.color)
+            if is_right:
+                surf.blit(txt1, (hx - txt1.get_width(), hy))
+            else:
+                surf.blit(txt1, (hx, hy))
+
+            # Linha 2: Cooldowns compactos
+            parts = []
             if ship.spread_cool <= 0:
-                surf.blit(font.render("SPREAD OK", True, C.SPREAD_COLOR), (x_st, y_pos))
+                parts.append(("SPR", C.SPREAD_COLOR))
             else:
-                surf.blit(font.render(f"SPREAD {ship.spread_cool:.1f}", True, C.GRAY), (x_st, y_pos))
-            x_st += 120
-            
+                parts.append((f"SPR:{ship.spread_cool:.0f}", C.GRAY))
             if ship.shield_active:
-                surf.blit(font.render(f"SHIELD {ship.shield_timer:.1f}s", True, C.SHIELD_COLOR), (x_st, y_pos))
+                parts.append((f"SHL:{ship.shield_timer:.1f}", C.SHIELD_COLOR))
             elif ship.shield_cooldown <= 0:
-                surf.blit(font.render("SHIELD OK", True, C.SHIELD_COLOR), (x_st, y_pos))
+                parts.append(("SHL", C.SHIELD_COLOR))
             else:
-                surf.blit(font.render(f"SHIELD {ship.shield_cooldown:.0f}s", True, C.GRAY), (x_st, y_pos))
-            x_st += 140
-            
+                parts.append((f"SHL:{ship.shield_cooldown:.0f}", C.GRAY))
             if ship.charging:
                 pct = min(100, int(100 * ship.charge_timer / C.CHARGE_TIME))
-                surf.blit(font.render(f"CHARGE {pct}%", True, C.CHARGE_BEAM_GLOW), (x_st, y_pos))
+                parts.append((f"CHG:{pct}%", C.CHARGE_BEAM_GLOW))
             elif ship.charge_cooldown <= 0:
-                surf.blit(font.render("CHARGE OK", True, C.CHARGE_BEAM_GLOW), (x_st, y_pos))
+                parts.append(("CHG", C.CHARGE_BEAM_GLOW))
             else:
-                surf.blit(font.render(f"CHARGE {ship.charge_cooldown:.0f}s", True, C.GRAY), (x_st, y_pos))
-            x_st += 130
-            
+                parts.append((f"CHG:{ship.charge_cooldown:.0f}", C.GRAY))
             if getattr(ship, 'has_crown', False):
-                surf.blit(font.render("👑 COROA", True, C.CROWN_COLOR), (x_st, y_pos))
-            x_st += 110
-            
+                parts.append(("COROA", C.CROWN_COLOR))
             if ship.drunk_timer > 0:
-                surf.blit(font.render(f"🍷 BÊBADO {ship.drunk_timer:.1f}s", True, C.SABOTAGE_COLOR), (x_st, y_pos))
-                
-            y_pos += 22
+                parts.append((f"DRK:{ship.drunk_timer:.0f}", C.SABOTAGE_COLOR))
+
+            sep = " | "
+            line2_y = hy + 20
+            if is_right:
+                x_cursor = hx
+                for idx in range(len(parts) - 1, -1, -1):
+                    txt_str, color = parts[idx]
+                    if idx < len(parts) - 1:
+                        sep_s = small.render(sep, True, C.GRAY)
+                        x_cursor -= sep_s.get_width()
+                        surf.blit(sep_s, (x_cursor, line2_y))
+                    part_s = small.render(txt_str, True, color)
+                    x_cursor -= part_s.get_width()
+                    surf.blit(part_s, (x_cursor, line2_y))
+            else:
+                x_cursor = hx
+                for idx, (txt_str, color) in enumerate(parts):
+                    if idx > 0:
+                        sep_s = small.render(sep, True, C.GRAY)
+                        surf.blit(sep_s, (x_cursor, line2_y))
+                        x_cursor += sep_s.get_width()
+                    part_s = small.render(txt_str, True, color)
+                    surf.blit(part_s, (x_cursor, line2_y))
+                    x_cursor += part_s.get_width()
 
         # ── Central HUD ──
         w_surf = font.render(f"WAVE {self.wave}", True, C.WHITE)
-        surf.blit(w_surf, (C.WIDTH // 2 - w_surf.get_width() // 2, 10))
+        surf.blit(w_surf, (C.WIDTH // 2 - w_surf.get_width() // 2, 8))
+
+        # Barra de objetivo de score
+        goal_txt = small.render(f"META: {C.WIN_SCORE} pts", True, C.GRAY)
+        surf.blit(goal_txt, (C.WIDTH // 2 - goal_txt.get_width() // 2, 28))
 
         if self.freeze_timer > 0:
             fl = font.render(f"FREEZE {self.freeze_timer:.1f}s", True, C.ICY_BLUE)
-            surf.blit(fl, (C.WIDTH // 2 - fl.get_width() // 2, 30))
+            surf.blit(fl, (C.WIDTH // 2 - fl.get_width() // 2, 46))
 
         if self.tether_active:
-            tl = font.render(f"⚡ TETHER {self.tether_timer:.1f}s", True, (255, 220, 80))
-            surf.blit(tl, (C.WIDTH // 2 - tl.get_width() // 2, 50))
+            tl = font.render(f"TETHER {self.tether_timer:.1f}s", True, (255, 220, 80))
+            surf.blit(tl, (C.WIDTH // 2 - tl.get_width() // 2, 64))
             
-        y_ghost = C.HEIGHT - 30
+        # ── Ghost info (center) ──
+        y_ghost = C.HEIGHT // 2 + 60
         for p_id, ghost in self.ghosts.items():
-            g_txt = font.render(f"P{p_id} FANTASMA {ghost.timer:.0f}s - Passe por cima para resgatar", True, self.ships_dict[p_id].color)
+            g_txt = font.render(f"P{p_id} FANTASMA {ghost.timer:.0f}s - Passe perto para resgatar", True, self.ships_dict[p_id].color)
             surf.blit(g_txt, (C.WIDTH // 2 - g_txt.get_width() // 2, y_ghost))
-            y_ghost -= 20
+            y_ghost += 24
